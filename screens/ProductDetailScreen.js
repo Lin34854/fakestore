@@ -1,3 +1,5 @@
+import { useDispatch } from 'react-redux';
+import { addToCart } from '../store/cartSlice';
 import React, { useEffect, useState } from 'react';
 import {
   View,
@@ -11,7 +13,7 @@ import {
 
 export default function ProductDetailScreen({ route, navigation }) {
   const { productId } = route.params;
-
+  const dispatch = useDispatch();
   const [product, setProduct] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -64,7 +66,10 @@ export default function ProductDetailScreen({ route, navigation }) {
 
       <TouchableOpacity
         style={styles.button}
-        onPress={() => alert('Add to cart coming in Milestone 2')}
+        onPress={() => {
+    dispatch(addToCart(product));
+    alert('Added to shopping cart');
+}}
       >
         <Text style={styles.buttonText}>Add to Shopping Cart</Text>
       </TouchableOpacity>
