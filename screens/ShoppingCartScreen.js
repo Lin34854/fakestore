@@ -6,20 +6,25 @@ import {
     Image,
     TouchableOpacity,
     StyleSheet,
+    Alert,
 } from 'react-native';
 
 import { useSelector, useDispatch } from 'react-redux';
 
 import {
+    setCartItems,
     increaseQuantity,
     decreaseQuantity,
     clearCart,
 } from '../store/cartSlice';
 
-import { createOrder } from '../store/orderSlice';
+import { setOrders } from '../store/orderSlice';
+import { apiRequest, fixImageUrl } from '../services/api';
 
 export default function ShoppingCartScreen() {
     const dispatch = useDispatch();
+
+    const token = useSelector(state => state.auth.token);
     const cartItems = useSelector(state => state.cart.items);
 
     const totalItems = cartItems.reduce((sum, item) => sum + item.quantity, 0);
@@ -29,16 +34,117 @@ export default function ShoppingCartScreen() {
         0
     );
 
-    const handleCheckOut = () => {
-        dispatch(createOrder({
-            items: cartItems,
-            totalItems,
-            totalPrice,
+    const saveCartToServer = async (items) => {
+        const serverItems = items.map(item => ({
+            id: item.id,
+            price: item.price,
+            count: item.quantity,
         }));
 
-        dispatch(clearCart());
+        const result = await apiRequest(
+            '/cart',
+            'PUT',
+            { items: serverItems },
+            token
+        );
 
-        alert('Order created successfully');
+        if (result.status !== 'OK') {
+            Alert.alert('Error', result.message || 'Cannot update cart');
+        }
+    };
+
+    const handleIncrease = async (productId) => {
+        const newItems = cartItems.map(item =>
+            item.id === productId
+                ? { ...item, quantity: item.quantity + 1 }
+                : item
+        );
+
+        dispatch(increaseQuantity(productId));
+        await saveCartToServer(newItems);
+    };
+
+    const handleDecrease = async (productId) => {
+        const newItems = cartItems
+            .map(item =>
+                item.id === productId
+                    ? { ...item, quantity: item.quantity - 1 }
+                    : item
+            )
+            .filter(item => item.quantity > 0);
+
+        dispatch(decreaseQuantity(productId));
+        await saveCartToServer(newItems);
+    };
+
+    const reloadOrders = async () => {
+        const ordersData = await apiRequest('/orders/all', 'GET', null, token);
+
+        if (ordersData.status === 'OK') {
+            const orders = await Promise.all(
+                ordersData.orders.map(async order => {
+                    const parsedItems = JSON.parse(order.order_items);
+
+                    const items = await Promise.all(
+                        parsedItems.map(async item => {
+                            const product = await apiRequest(`/products/${item.prodID}`);
+                            const fixedProduct = fixImageUrl(product);
+
+                            return {
+                                ...fixedProduct,
+                                quantity: item.quantity,
+                                price: item.price,
+                            };
+                        })
+                    );
+
+                    let status = 'new';
+                    if (order.is_delivered === 1) {
+                        status = 'delivered';
+                    } else if (order.is_paid === 1) {
+                        status = 'paid';
+                    }
+
+                    return {
+                        id: order.id,
+                        items,
+                        totalItems: order.item_numbers,
+                        totalPrice: order.total_price,
+                        status,
+                        expanded: false,
+                    };
+                })
+            );
+
+            dispatch(setOrders(orders));
+        }
+    };
+
+    const handleCheckOut = async () => {
+        const orderItems = cartItems.map(item => ({
+            prodID: item.id,
+            price: item.price,
+            quantity: item.quantity,
+        }));
+
+        const result = await apiRequest(
+            '/orders/neworder',
+            'POST',
+            { items: orderItems },
+            token
+        );
+
+        if (result.status !== 'OK') {
+            Alert.alert('Error', result.message || 'Cannot create order');
+            return;
+        }
+
+        await apiRequest('/cart', 'PUT', { items: [] }, token);
+
+        dispatch(clearCart());
+        await reloadOrders();
+
+        Alert.alert('Success', 'Order created successfully');
     };
 
     if (cartItems.length === 0) {
@@ -81,9 +187,7 @@ export default function ShoppingCartScreen() {
                             <View style={styles.quantityRow}>
                                 <TouchableOpacity
                                     style={styles.button}
-                                    onPress={() =>
-                                        dispatch(decreaseQuantity(item.id))
-                                    }
+                                    onPress={() => handleDecrease(item.id)}
                                 >
                                     <Text style={styles.buttonText}>-</Text>
                                 </TouchableOpacity>
@@ -94,9 +198,7 @@ export default function ShoppingCartScreen() {
 
                                 <TouchableOpacity
                                     style={styles.button}
-                                    onPress={() =>
-                                        dispatch(increaseQuantity(item.id))
-                                    }
+                                    onPress={() => handleIncrease(item.id)}
                                 >
                                     <Text style={styles.buttonText}>+</Text>
                                 </TouchableOpacity>

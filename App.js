@@ -74,27 +74,29 @@ function MainTabs() {
     );
 }
 
+function RootNavigator() {
+    const token = useSelector(state => state.auth.token);
+
+    return (
+        <NavigationContainer>
+            <Stack.Navigator screenOptions={{ headerShown: false }}>
+                {!token ? (
+                    <>
+                        <Stack.Screen name="Splash" component={SplashScreen} />
+                        <Stack.Screen name="Auth" component={AuthScreen} />
+                    </>
+                ) : (
+                    <Stack.Screen name="MainTabs" component={MainTabs} />
+                )}
+            </Stack.Navigator>
+        </NavigationContainer>
+    );
+}
+
 export default function App() {
     return (
         <Provider store={store}>
-            <NavigationContainer>
-                <Stack.Navigator screenOptions={{ headerShown: false }}>
-                    <Stack.Screen
-                        name="Splash"
-                        component={SplashScreen}
-                    />
-
-                    <Stack.Screen
-                        name="Auth"
-                        component={AuthScreen}
-                    />
-
-                    <Stack.Screen
-                        name="MainTabs"
-                        component={MainTabs}
-                    />
-                </Stack.Navigator>
-            </NavigationContainer>
+            <RootNavigator />
         </Provider>
     );
 }

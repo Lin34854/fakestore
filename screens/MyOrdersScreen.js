@@ -6,19 +6,103 @@ import {
     TouchableOpacity,
     StyleSheet,
     Image,
+    Alert,
 } from 'react-native';
 
 import { useSelector, useDispatch } from 'react-redux';
-
-import {
-    payOrder,
-    receiveOrder,
-    toggleOrder,
-} from '../store/orderSlice';
+import { setOrders, toggleOrder } from '../store/orderSlice';
+import { apiRequest, fixImageUrl } from '../services/api';
 
 export default function MyOrdersScreen() {
     const dispatch = useDispatch();
+
+    const token = useSelector(state => state.auth.token);
     const orders = useSelector(state => state.orders.orders);
+
+    const reloadOrders = async () => {
+        const ordersData = await apiRequest('/orders/all', 'GET', null, token);
+
+        if (ordersData.status === 'OK') {
+            const orders = await Promise.all(
+                ordersData.orders.map(async order => {
+                    const parsedItems = JSON.parse(order.order_items);
+
+                    const items = await Promise.all(
+                        parsedItems.map(async item => {
+                            const product = await apiRequest(`/products/${item.prodID}`);
+                            const fixedProduct = fixImageUrl(product);
+
+                            return {
+                                ...fixedProduct,
+                                quantity: item.quantity,
+                                price: item.price,
+                            };
+                        })
+                    );
+
+                    let status = 'new';
+                    if (order.is_delivered === 1) {
+                        status = 'delivered';
+                    } else if (order.is_paid === 1) {
+                        status = 'paid';
+                    }
+
+                    return {
+                        id: order.id,
+                        items,
+                        totalItems: order.item_numbers,
+                        totalPrice: order.total_price,
+                        status,
+                        expanded: false,
+                    };
+                })
+            );
+
+            dispatch(setOrders(orders));
+        }
+    };
+
+    const handlePay = async (orderId) => {
+        const result = await apiRequest(
+            '/orders/updateorder',
+            'POST',
+            {
+                orderID: orderId,
+                isPaid: 1,
+                isDelivered: 0,
+            },
+            token
+        );
+
+        if (result.status !== 'OK') {
+            Alert.alert('Error', result.message || 'Cannot pay order');
+            return;
+        }
+
+        await reloadOrders();
+        Alert.alert('Success', 'Order paid successfully');
+    };
+
+    const handleReceive = async (orderId) => {
+        const result = await apiRequest(
+            '/orders/updateorder',
+            'POST',
+            {
+                orderID: orderId,
+                isPaid: 1,
+                isDelivered: 1,
+            },
+            token
+        );
+
+        if (result.status !== 'OK') {
+            Alert.alert('Error', result.message || 'Cannot receive order');
+            return;
+        }
+
+        await reloadOrders();
+        Alert.alert('Success', 'Order received successfully');
+    };
 
     if (orders.length === 0) {
         return (
@@ -53,7 +137,7 @@ export default function MyOrdersScreen() {
                             <Text>Total Items: {item.totalItems}</Text>
 
                             <Text>
-                                Total Price: ${item.totalPrice.toFixed(2)}
+                                Total Price: ${Number(item.totalPrice).toFixed(2)}
                             </Text>
 
                             <Text style={styles.detailHint}>
@@ -97,7 +181,7 @@ export default function MyOrdersScreen() {
                         {item.status === 'new' && (
                             <TouchableOpacity
                                 style={styles.actionButton}
-                                onPress={() => dispatch(payOrder(item.id))}
+                                onPress={() => handlePay(item.id)}
                             >
                                 <Text style={styles.actionButtonText}>
                                     Pay
@@ -108,9 +192,7 @@ export default function MyOrdersScreen() {
                         {item.status === 'paid' && (
                             <TouchableOpacity
                                 style={styles.actionButton}
-                                onPress={() =>
-                                    dispatch(receiveOrder(item.id))
-                                }
+                                onPress={() => handleReceive(item.id)}
                             >
                                 <Text style={styles.actionButtonText}>
                                     Receive

@@ -9,47 +9,77 @@ import {
     Alert,
 } from 'react-native';
 
-export default function UserProfileScreen({ route, navigation }) {
+import { useSelector, useDispatch } from 'react-redux';
+import { signOut, updateUserName } from '../store/authSlice';
+import { clearCart } from '../store/cartSlice';
+import { clearOrders } from '../store/orderSlice';
+import { apiRequest } from '../services/api';
 
-    const user = route.params?.user || {
-        name: 'Demo User',
-        email: 'demo@email.com',
-    };
+export default function UserProfileScreen() {
+    const dispatch = useDispatch();
+
+    const user = useSelector(state => state.auth.user);
+    const token = useSelector(state => state.auth.token);
 
     const [modalVisible, setModalVisible] = useState(false);
-
-    const [newName, setNewName] = useState(user.name);
+    const [newName, setNewName] = useState(user?.name || '');
     const [newPassword, setNewPassword] = useState('');
 
-    const handleUpdate = () => {
-        Alert.alert('Success', 'User profile updated');
+    const handleUpdate = async () => {
+        if (newName.trim() === '' || newPassword.trim() === '') {
+            Alert.alert('Error', 'Please enter name and password');
+            return;
+        }
+
+        const result = await apiRequest(
+            '/users/update',
+            'POST',
+            {
+                name: newName,
+                password: newPassword,
+            },
+            token
+        );
+
+        if (result.status !== 'OK') {
+            Alert.alert('Error', result.message || 'Update failed');
+            return;
+        }
+
+        dispatch(updateUserName(newName));
         setModalVisible(false);
+        setNewPassword('');
+
+        Alert.alert('Success', 'User profile updated');
     };
 
     const handleSignOut = () => {
-        Alert.alert('Signed Out');
+        dispatch(clearCart());
+        dispatch(clearOrders());
+        dispatch(signOut());
 
-        navigation.replace('Auth');
+        Alert.alert('Signed Out');
     };
 
     return (
         <View style={styles.container}>
-
             <Text style={styles.title}>User Profile</Text>
 
             <View style={styles.infoBox}>
                 <Text style={styles.label}>User Name:</Text>
-                <Text style={styles.value}>{newName}</Text>
+                <Text style={styles.value}>{user?.name}</Text>
 
                 <Text style={styles.label}>Email:</Text>
-                <Text style={styles.value}>{user.email}</Text>
+                <Text style={styles.value}>{user?.email}</Text>
             </View>
 
             <View style={styles.row}>
-
                 <TouchableOpacity
                     style={styles.button}
-                    onPress={() => setModalVisible(true)}
+                    onPress={() => {
+                        setNewName(user?.name || '');
+                        setModalVisible(true);
+                    }}
                 >
                     <Text style={styles.buttonText}>Update</Text>
                 </TouchableOpacity>
@@ -60,7 +90,6 @@ export default function UserProfileScreen({ route, navigation }) {
                 >
                     <Text style={styles.buttonText}>Sign Out</Text>
                 </TouchableOpacity>
-
             </View>
 
             <Modal
@@ -70,7 +99,6 @@ export default function UserProfileScreen({ route, navigation }) {
             >
                 <View style={styles.modalContainer}>
                     <View style={styles.modalContent}>
-
                         <Text style={styles.modalTitle}>
                             Update User Profile
                         </Text>
@@ -91,7 +119,6 @@ export default function UserProfileScreen({ route, navigation }) {
                         />
 
                         <View style={styles.row}>
-
                             <TouchableOpacity
                                 style={styles.button}
                                 onPress={handleUpdate}
@@ -109,13 +136,10 @@ export default function UserProfileScreen({ route, navigation }) {
                                     Cancel
                                 </Text>
                             </TouchableOpacity>
-
                         </View>
-
                     </View>
                 </View>
             </Modal>
-
         </View>
     );
 }

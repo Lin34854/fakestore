@@ -8,7 +8,15 @@ import {
     Alert,
 } from 'react-native';
 
-export default function AuthScreen({ navigation }) {
+import { useDispatch } from 'react-redux';
+import { setUser } from '../store/authSlice';
+import { setCartItems } from '../store/cartSlice';
+import { setOrders } from '../store/orderSlice';
+import { apiRequest, fixImageUrl } from '../services/api';
+
+export default function AuthScreen() {
+    const dispatch = useDispatch();
+
     const [isSignUp, setIsSignUp] = useState(false);
     const [name, setName] = useState('');
     const [email, setEmail] = useState('');
@@ -20,7 +28,68 @@ export default function AuthScreen({ navigation }) {
         setPassword('');
     };
 
-    const handleSubmit = () => {
+    const loadCartAndOrders = async (token) => {
+        const cartData = await apiRequest('/cart', 'GET', null, token);
+
+        if (cartData.status === 'OK') {
+            const cartItems = await Promise.all(
+                cartData.items.map(async item => {
+                    const product = await apiRequest(`/products/${item.id}`);
+                    const fixedProduct = fixImageUrl(product);
+
+                    return {
+                        ...fixedProduct,
+                        quantity: item.count,
+                    };
+                })
+            );
+
+            dispatch(setCartItems(cartItems));
+        }
+
+        const ordersData = await apiRequest('/orders/all', 'GET', null, token);
+
+        if (ordersData.status === 'OK') {
+            const orders = await Promise.all(
+                ordersData.orders.map(async order => {
+                    const parsedItems = JSON.parse(order.order_items);
+
+                    const items = await Promise.all(
+                        parsedItems.map(async item => {
+                            const product = await apiRequest(`/products/${item.prodID}`);
+                            const fixedProduct = fixImageUrl(product);
+
+                            return {
+                                ...fixedProduct,
+                                quantity: item.quantity,
+                                price: item.price,
+                            };
+                        })
+                    );
+
+                    let status = 'new';
+                    if (order.is_delivered === 1) {
+                        status = 'delivered';
+                    } else if (order.is_paid === 1) {
+                        status = 'paid';
+                    }
+
+                    return {
+                        id: order.id,
+                        items,
+                        totalItems: order.item_numbers,
+                        totalPrice: order.total_price,
+                        status,
+                        expanded: false,
+                    };
+                })
+            );
+
+            dispatch(setOrders(orders));
+        }
+    };
+
+    const handleSubmit = async () => {
         if (isSignUp && name.trim() === '') {
             Alert.alert('Error', 'Please enter your name');
             return;
@@ -31,17 +100,38 @@ export default function AuthScreen({ navigation }) {
             return;
         }
 
-        const user = {
-            name: isSignUp ? name : 'Demo User',
-            email,
-        };
+        const path = isSignUp ? '/users/signup' : '/users/signin';
 
-        Alert.alert(
-            'Success',
-            isSignUp ? 'Sign up successful' : 'Sign in successful'
-        );
+        const body = isSignUp
+            ? { name, email, password }
+            : { email, password };
 
-        navigation.replace('MainTabs', { user });
+        try {
+            const data = await apiRequest(path, 'POST', body);
+
+            if (data.status !== 'OK') {
+                Alert.alert('Error', data.message || 'Login failed');
+                return;
+            }
+
+            dispatch(setUser({
+                user: {
+                    id: data.id,
+                    name: data.name,
+                    email: data.email,
+                },
+                token: data.token,
+            }));
+
+            await loadCartAndOrders(data.token);
+
+            Alert.alert(
+                'Success',
+                isSignUp ? 'Sign up successful' : 'Sign in successful'
+            );
+        } catch (error) {
+            Alert.alert('Error', 'Cannot connect to server');
+        }
     };
 
     return (
